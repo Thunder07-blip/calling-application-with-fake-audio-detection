@@ -1,17 +1,21 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from models import TokenResponse
-import token_service
-import os
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("api_backend")
+from database import init_db
+from routes.companies import router as companies_router
+from routes.calls import router as calls_router
+from routes.auth import router as token_router
 
-app = FastAPI(title="Safe Calling Platform API")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger("backend_api")
 
-# Add CORS to allow Flutter web client to connect
+app = FastAPI(
+    title="Safe Call Platform API",
+    description="Multi-tenant WebRTC calling platform with AI-based audio safety monitoring.",
+    version="1.0.0",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,22 +24,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-LIVEKIT_URL = os.getenv("LIVEKIT_PUBLIC_URL", "ws://localhost:7880")
+# Register all routers
+app.include_router(companies_router)
+app.include_router(calls_router)
+app.include_router(token_router)
 
-@app.get("/token", response_model=TokenResponse)
-async def get_token(
-    identity: str = Query(..., description="The user's identity"),
-    room: str = Query("testroom", description="The room to join")
-):
-    logger.info(f"Token requested for identity={identity}, room={room}")
-    try:
-        # Generate token and return along with correct public LiveKit URL
-        token = token_service.create_token(identity, room)
-        return {"token": token, "livekit_url": LIVEKIT_URL}
-    except Exception as e:
-        logger.error(f"Error generating token: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate token")
+
+@app.on_event("startup")
+def on_startup():
+    logger.info("Starting Safe Call API — initialising database tables...")
+    init_db()
+
 
 @app.get("/health")
-async def health_check():
+def health():
     return {"status": "ok"}

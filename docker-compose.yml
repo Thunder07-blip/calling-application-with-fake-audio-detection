@@ -1,6 +1,16 @@
-version: "3.9"
-
 services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: safecall
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   livekit:
     image: livekit/livekit-server:latest
     command: --dev --node-ip=192.168.1.7
@@ -32,8 +42,10 @@ services:
       - LIVEKIT_API_KEY=devkey
       - LIVEKIT_API_SECRET=secret
       - LIVEKIT_PUBLIC_URL=ws://192.168.1.7:7880
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/safecall
     depends_on:
       - livekit
+      - db
 
   ml-agent:
     build: ./ml_agent_python
@@ -44,3 +56,6 @@ services:
       - ROOM_NAME=testroom
     depends_on:
       - livekit
+
+volumes:
+  postgres_data:
