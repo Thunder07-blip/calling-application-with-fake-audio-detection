@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --node-ip=192.168.1.7
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50020:50000-50020/udp"
+    environment:
+      LIVEKIT_KEYS: "devkey: secret"
+
+  coturn:
+    image: coturn/coturn
+    command: >
+      -n
+      --log-file=stdout
+      --realm=livekit
+      --no-cli
+      --no-tls
+      --listening-port=5349
+    ports:
+      - "5349:5349"
+      - "5349:5349/udp"
+
+  backend-api:
+    build: ./backend_api
+    ports:
+      - "8000:8000"
+    environment:
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - LIVEKIT_PUBLIC_URL=ws://192.168.1.7:7880
+    depends_on:
+      - livekit
+
+  ml-agent:
+    build: ./ml_agent_python
+    environment:
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-secret}
+      - LIVEKIT_URL=ws://livekit:7880
+      - ROOM_NAME=testroom
+    depends_on:
+      - livekit

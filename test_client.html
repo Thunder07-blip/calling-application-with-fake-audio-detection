@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Safe Voice Web Client</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: white; padding: 40px; }
+        .container { max-width: 640px; margin: auto; background: #1e293b; padding: 24px; border-radius: 12px; box-shadow: 0 4px 20px rgb(0 0 0 / 0.4); }
+        h1 { margin-top: 0; }
+        button { background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 10px; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        #disconnectBtn { background: #ef4444; }
+        #disconnectBtn:disabled { background: #475569; }
+        ul { background: #0f172a; padding: 12px 28px; border-radius: 6px; min-height: 40px; }
+        li { padding: 4px 0; }
+        #log { margin-top: 20px; white-space: pre-wrap; font-family: monospace; font-size: 13px; background: #000; padding: 15px; height: 220px; overflow-y: auto; color: #10b981; border-radius: 6px;}
+        #sdkStatus { padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+        .ok { background: #052e16; color: #4ade80; }
+        .err { background: #450a0a; color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Safe Voice Platform</h1>
+        <div id="sdkStatus">Checking LiveKit SDK...</div>
+        <p>Real-time voice call with ML audio safety monitoring.</p>
+        
+        <button id="connectBtn" disabled>Connect &amp; Stream Mic</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+        
+        <h3>Participants in Room:</h3>
+        <ul id="participants"><li style="color:#64748b">No one connected yet</li></ul>
+        <div id="audioContainer" style="display:none"></div>
+
+        <h3>System Logs:</h3>
+        <div id="log"></div>
+    </div>
+
+    <!-- Primary CDN: jsdelivr -->
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"
+            onerror="loadFallbackSDK()"></script>
+
+    <script>
+        const sdkStatusEl = document.getElementById('sdkStatus');
+        const connectBtn  = document.getElementById('connectBtn');
+
+        // Fallback: try unpkg if jsdelivr failed
+        function loadFallbackSDK() {
+            const s = document.createElement('script');
+            s.src = 'https://unpkg.com/livekit-client/dist/livekit-client.umd.min.js';
+            s.onload  = () => initApp();
+            s.onerror = () => {
+                sdkStatusEl.className = 'err';
+                sdkStatusEl.textContent = '❌ LiveKit SDK failed to load from both CDNs. Check your internet connection.';
+            };
+            document.head.appendChild(s);
+        }
+
+        // Called once SDK is confirmed loaded
+        function initApp() {
+            if (typeof LivekitClient === 'undefined') {
+                sdkStatusEl.className = 'err';
+                sdkStatusEl.textContent = '❌ LiveKit SDK loaded but LivekitClient global is missing. Check browser console.';
+                return;
+            }
+            sdkStatusEl.className = 'ok';
+            sdkStatusEl.textContent = '✅ LiveKit SDK loaded. Ready to connect.';
+            connectBtn.disabled = false;
+        }
+
+        // Run check after page loads (primary script tag was sync, so it's already loaded if no error)
+        window.addEventListener('load', () => {
+            if (typeof LivekitClient !== 'undefined') {
+                initApp();
+            }
+            // if LivekitClient is undefined here, onerror already triggered fallback above
+        });
+
+        // ----- App logic -----
+        const disconnectBtn       = document.getElementById('disconnectBtn');
+        const participantsList    = document.getElementById('participants');
+        const audioContainer      = document.getElementById('audioContainer');
+        const logEl               = document.getElementById('log');
+        let room;
+
+        function log(msg) {
+            logEl.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateParticipants() {
+            participantsList.innerHTML = '';
+            if (!room) { participantsList.innerHTML = '<li style="color:#64748b">No one connected yet</li>'; return; }
+            if (room.localParticipant) {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>🎤 ${room.localParticipant.identity} (You)</strong>`;
+                participantsList.appendChild(li);
+            }
+            room.remoteParticipants.forEach((p) => {
+                const li = document.createElement('li');
+                li.innerText = `👤 ${p.identity}`;
+                participantsList.appendChild(li);
+            });
+        }
+
+        function attachAudio(track, identity) {
+            let el = document.getElementById('audio-' + identity);
+            if (!el) {
+                el = document.createElement('audio');
+                el.id = 'audio-' + identity;
+                el.autoplay = true;
+                el.setAttribute('playsinline', '');
+                audioContainer.appendChild(el);
+            }
+            track.attach(el);
+            log(`🔊 Now receiving audio from: ${identity}`);
+        }
+
+        function detachAudio(identity) {
+            const el = document.getElementById('audio-' + identity);
+            if (el) { el.srcObject = null; el.remove(); }
+        }
+
+        connectBtn.onclick = async () => {
+            connectBtn.disabled = true;
+            log('Requesting token from FastAPI backend...');
+            try {
+                const identity = 'web_user_' + Math.floor(Math.random() * 9000 + 1000);
+                const res  = await fetch(`http://127.0.0.1:8000/token?identity=${identity}&room=testroom`);
+                if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
+                const data = await res.json();
+
+                log(`Token OK. Connecting to ${data.livekit_url}...`);
+                room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+
+                room.on(LivekitClient.RoomEvent.ParticipantConnected,    (p) => { log('✅ Joined: ' + p.identity); updateParticipants(); });
+                room.on(LivekitClient.RoomEvent.ParticipantDisconnected, (p) => { log('❌ Left: '   + p.identity); detachAudio(p.identity); updateParticipants(); });
+
+                room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+                    if (track.kind === LivekitClient.Track.Kind.Audio) attachAudio(track, participant.identity);
+                });
+                room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
+                    detachAudio(participant.identity);
+                });
+
+                await room.connect(data.livekit_url, data.token);
+                log('Connected to "testroom"!');
+
+                log('Requesting microphone permissions...');
+                await room.localParticipant.setMicrophoneEnabled(true, {
+                    echoCancellation: false, noiseSuppression: false, autoGainControl: false
+                });
+                log('🎤 Mic streaming! Open this page in another tab to hear each other.');
+                updateParticipants();
+                disconnectBtn.disabled = false;
+                connectBtn.textContent = 'Connected ✓';
+
+            } catch (err) {
+                log('❌ Error: ' + err.message);
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Connect & Stream Mic';
+            }
+        };
+
+        disconnectBtn.onclick = async () => {
+            if (room) { await room.disconnect(); log('Disconnected.'); }
+            audioContainer.innerHTML = '';
+            room = null;
+            connectBtn.disabled = false;
+            connectBtn.textContent = 'Connect & Stream Mic';
+            disconnectBtn.disabled = true;
+            updateParticipants();
+        };
+    </script>
+</body>
+</html>
