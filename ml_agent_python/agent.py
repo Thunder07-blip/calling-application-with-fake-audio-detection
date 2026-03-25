@@ -81,6 +81,16 @@ async def main():
 
     room = rtc.Room()
 
+    @room.on("participant_connected")
+    def on_participant_connected(participant: rtc.RemoteParticipant):
+        count = len(room.remote_participants)
+        print(f"\n👥 [ROOM UPDATE] {participant.identity} joined. Total users in room: {count}\n", flush=True)
+
+    @room.on("participant_disconnected")
+    def on_participant_disconnected(participant: rtc.RemoteParticipant):
+        count = len(room.remote_participants)
+        print(f"\n👋 [ROOM UPDATE] {participant.identity} left. Total users in room: {count}\n", flush=True)
+
     @room.on("track_subscribed")
     def on_track_subscribed(track: rtc.Track, publication: rtc.RemoteTrackPublication, participant: rtc.RemoteParticipant):
         if track.kind == rtc.TrackKind.KIND_AUDIO:
@@ -115,7 +125,7 @@ async def main():
                 # Check for Silence (Is the speaker actively talking right now?)
                 mx = np.max(np.abs(buffer_3s))
                 if mx < SILENCE_THRESHOLD:
-                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} silence")
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} silence", flush=True)
                     continue
                 
                 # Normalize chunk identically to the original test_realtime pipeline
@@ -126,10 +136,10 @@ async def main():
                 
                 # Terminal output requirement:
                 if prob > THRESHOLD:
-                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} fake confidence {prob:.2f}")
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} fake confidence {prob:.2f}", flush=True)
                 else:
                     real_conf = 1.0 - prob
-                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} real confidence {real_conf:.2f}")
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} real confidence {real_conf:.2f}", flush=True)
 
 
     try:
