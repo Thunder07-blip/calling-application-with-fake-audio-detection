@@ -51,12 +51,12 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   // Automatic host resolution: 10.0.2.2 for Android Emulator, localhost for others
   String get _backendUrl {
     const argHost = String.fromEnvironment('BACKEND_HOST');
-    if (argHost.isNotEmpty) return 'http://$argHost:8000/token';
+    if (argHost.isNotEmpty) return 'http://$argHost:8000/token/demo';
     
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-       return 'http://192.168.1.7:8000/token';
+       return 'http://192.168.29.34:8000/token/demo';
     }
-    return 'http://127.0.0.1:8000/token';
+    return 'http://127.0.0.1:8000/token/demo';
   }
 
   @override
@@ -90,10 +90,9 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
     setState(() => _isConnecting = true);
 
     try {
-      final identity = 'user_${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
       
-      // Attempt connection to backend
-      final response = await http.get(Uri.parse('$_backendUrl?identity=$identity&room=testroom'))
+      // Attempt connection to the new backend demo provisioning route
+      final response = await http.get(Uri.parse('$_backendUrl?room=testroom'))
           .timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 200) {
@@ -104,9 +103,9 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
         // Development bridge: Redirect localhost LiveKit to emulator host
         if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
           if (livekitUrl.contains('127.0.0.1')) {
-            livekitUrl = livekitUrl.replaceFirst('127.0.0.1', '192.168.1.7');
+            livekitUrl = livekitUrl.replaceFirst('127.0.0.1', '192.168.29.34');
           } else if (livekitUrl.contains('localhost')) {
-            livekitUrl = livekitUrl.replaceFirst('localhost', '192.168.1.7');
+            livekitUrl = livekitUrl.replaceFirst('localhost', '192.168.29.34');
           }
         }
 

@@ -35,10 +35,13 @@ if resp.status_code != 200:
 company = resp.json()
 print(f"✅ Company created: {company['name']} (id={company['id']})")
 
+import uuid
+random_suffix = uuid.uuid4().hex[:6]
+
 step("2. Creating User...")
 resp = requests.post(f"{BASE}/users", json={
     "company_id": company["id"],
-    "email": "bob@acme.com",
+    "email": f"bob_{random_suffix}@acme.com",
     "display_name": "Bob"
 })
 if resp.status_code != 200:

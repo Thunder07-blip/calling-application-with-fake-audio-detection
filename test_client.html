@@ -124,8 +124,7 @@
             connectBtn.disabled = true;
             log('Requesting token from FastAPI backend...');
             try {
-                const identity = 'web_user_' + Math.floor(Math.random() * 9000 + 1000);
-                const res  = await fetch(`http://127.0.0.1:8000/token?identity=${identity}&room=testroom`);
+                const res  = await fetch(`http://127.0.0.1:8000/token/demo?room=testroom`);
                 if (!res.ok) throw new Error(`Backend HTTP ${res.status}`);
                 const data = await res.json();
 

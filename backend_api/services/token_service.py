@@ -1,5 +1,5 @@
 import os
-from livekit.api import AccessToken, VideoGrant
+from livekit.api import AccessToken, VideoGrants
 import logging
 
 logger = logging.getLogger("backend_api.services.token_service")
@@ -21,12 +21,12 @@ def generate_livekit_token(identity: str, room: str, name: str = "") -> str:
         A signed JWT string to pass directly to the LiveKit client SDK.
     """
     try:
-        grant = VideoGrant(room_join=True, room=room)
+        grants = VideoGrants(room_join=True, room=room)
         token = (
             AccessToken(API_KEY, API_SECRET)
             .with_identity(identity)
             .with_name(name or identity)
-            .with_grants(grant)
+            .with_grants(grants)
         )
         return token.to_jwt()
     except Exception as e:

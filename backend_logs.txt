@@ -1,0 +1,100 @@
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+backend-api-1  |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+backend-api-1  |     raise exc
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+backend-api-1  |     await app(scope, receive, sender)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+backend-api-1  |     await self.app(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 716, in __call__
+backend-api-1  |     await self.middleware_stack(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 736, in app
+backend-api-1  |     await route.handle(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 290, in handle
+backend-api-1  |     await self.app(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 130, in app
+backend-api-1  |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+backend-api-1  |     raise exc
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+backend-api-1  |     await app(scope, receive, sender)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 116, in app
+backend-api-1  |     response = await f(request)
+backend-api-1  |                ^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 670, in app
+backend-api-1  |     raw_response = await run_endpoint_function(
+backend-api-1  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 326, in run_endpoint_function
+backend-api-1  |     return await run_in_threadpool(dependant.call, **values)
+backend-api-1  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+backend-api-1  |     return await anyio.to_thread.run_sync(func)
+backend-api-1  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+backend-api-1  |     return await get_async_backend().run_sync_in_worker_thread(
+backend-api-1  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2502, in run_sync_in_worker_thread
+backend-api-1  |     return await future
+backend-api-1  |            ^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 986, in run
+backend-api-1  |     result = context.run(func, *args)
+backend-api-1  |              ^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/app/routes/calls.py", line 37, in start_call
+backend-api-1  |     db.commit()
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2030, in commit
+backend-api-1  |     trans.commit(_to_root=True)
+backend-api-1  |   File "<string>", line 2, in commit
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py", line 137, in _go
+backend-api-1  |     ret_value = fn(self, *arg, **kw)
+backend-api-1  |                 ^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 1311, in commit
+backend-api-1  |     self._prepare_impl()
+backend-api-1  |   File "<string>", line 2, in _prepare_impl
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py", line 137, in _go
+backend-api-1  |     ret_value = fn(self, *arg, **kw)
+backend-api-1  |                 ^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 1286, in _prepare_impl
+backend-api-1  |     self.session.flush()
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4331, in flush
+backend-api-1  |     self._flush(objects)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4466, in _flush
+backend-api-1  |     with util.safe_reraise():
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 121, in __exit__
+backend-api-1  |     raise exc_value.with_traceback(exc_tb)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4427, in _flush
+backend-api-1  |     flush_context.execute()
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+backend-api-1  |     rec.execute(self)
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+backend-api-1  |     util.preloaded.orm_persistence.save_obj(
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 93, in save_obj
+backend-api-1  |     _emit_insert_statements(
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 1233, in _emit_insert_statements
+backend-api-1  |     result = connection.execute(
+backend-api-1  |              ^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+backend-api-1  |     return meth(
+backend-api-1  |            ^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 527, in _execute_on_connection
+backend-api-1  |     return connection._execute_clauseelement(
+backend-api-1  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+backend-api-1  |     ret = self._execute_context(
+backend-api-1  |           ^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+backend-api-1  |     return self._exec_single_context(
+backend-api-1  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+backend-api-1  |     self._handle_dbapi_exception(
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2363, in _handle_dbapi_exception
+backend-api-1  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+backend-api-1  |     self.dialect.do_execute(
+backend-api-1  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+backend-api-1  |     cursor.execute(statement, parameters)
+backend-api-1  | sqlalchemy.exc.IntegrityError: (psycopg2.errors.NotNullViolation) null value in column "call_id" of relation "participants" violates not-null constraint
+backend-api-1  | DETAIL:  Failing row contains (ab4b84ca-d7c0-43fe-8035-c4285d948d02, null, c4181422-9edf-4437-8910-9efbdeb50101, 2026-03-25 04:03:18.206525, null).
+backend-api-1  | 
+backend-api-1  | [SQL: INSERT INTO participants (id, call_id, user_id, joined_at, left_at) VALUES (%(id)s::UUID, %(call_id)s::UUID, %(user_id)s::UUID, %(joined_at)s, %(left_at)s)]
+backend-api-1  | [parameters: {'id': UUID('ab4b84ca-d7c0-43fe-8035-c4285d948d02'), 'call_id': None, 'user_id': UUID('c4181422-9edf-4437-8910-9efbdeb50101'), 'joined_at': datetime.datetime(2026, 3, 25, 4, 3, 18, 206525), 'left_at': None}]
+backend-api-1  | (Background on this error at: https://sqlalche.me/e/20/gkpj)

@@ -13,7 +13,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
-    command: --dev --node-ip=192.168.1.7
+    command: --dev --node-ip=192.168.29.34
     ports:
       - "7880:7880"
       - "7881:7881"
@@ -41,7 +41,7 @@ services:
     environment:
       - LIVEKIT_API_KEY=devkey
       - LIVEKIT_API_SECRET=secret
-      - LIVEKIT_PUBLIC_URL=ws://192.168.1.7:7880
+      - LIVEKIT_PUBLIC_URL=ws://192.168.29.34:7880
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/safecall
     depends_on:
       - livekit

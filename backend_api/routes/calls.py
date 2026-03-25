@@ -29,6 +29,7 @@ def start_call(body: CallStartRequest, db: Session = Depends(get_db)):
         created_by=body.created_by,
     )
     db.add(call)
+    db.flush()  # Generate the call.id
 
     # Automatically add creator as first participant
     participant = Participant(call_id=call.id, user_id=body.created_by)
