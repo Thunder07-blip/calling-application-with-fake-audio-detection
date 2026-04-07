@@ -37,6 +37,14 @@ def on_startup():
     logger.info("Starting Safe Call API — initialising database tables...")
     init_db()
 
+from sqlalchemy.sql import text
+from database import engine
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
