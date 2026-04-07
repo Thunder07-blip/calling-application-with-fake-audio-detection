@@ -30,8 +30,11 @@ app.include_router(calls_router)
 app.include_router(token_router)
 
 
+print("🔥 FASTAPI STARTED INITIALIZING")
+
 @app.on_event("startup")
 def on_startup():
+    print("🚀 APP STARTED SUCCESSFULLY IN ON_STARTUP", flush=True)
     logger.info("Starting Safe Call API — initialising database tables...")
     init_db()
 

@@ -9,4 +9,4 @@ RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY backend_api/ .
 
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
