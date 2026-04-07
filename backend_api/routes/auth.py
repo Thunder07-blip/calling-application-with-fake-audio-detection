@@ -43,10 +43,10 @@ def get_token(user_id: UUID, call_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/demo", response_model=TokenResponse)
-def get_demo_token(room: str = "testroom", db: Session = Depends(get_db)):
+def get_demo_token(room: str = "testroom", name: str = None, db: Session = Depends(get_db)):
     """
     Helper route for instantly testing frontends. 
-    It automatically provisions a user and wires them into the requested room.
+    Accepts an optional `name` parameter to enforce readable usernames.
     """
     from models import Company, Participant
     import uuid
@@ -58,14 +58,23 @@ def get_demo_token(room: str = "testroom", db: Session = Depends(get_db)):
         db.add(company)
         db.flush()
 
-    # 2. Create a fresh user for this caller
-    user = User(
-        company_id=company.id, 
-        email=f"demo_{uuid.uuid4().hex[:6]}@demo.com", 
-        display_name=f"Tester {uuid.uuid4().hex[:4]}"
-    )
-    db.add(user)
-    db.flush()
+    # 2. Wire the user natively depending on if they provided a name
+    display_name = name.strip() if name else f"Tester {uuid.uuid4().hex[:4]}"
+    
+    if name:
+        user = db.query(User).filter(User.display_name == display_name, User.company_id == company.id).first()
+        if not user:
+            user = User(company_id=company.id, email=f"{uuid.uuid4().hex[:8]}@demo.com", display_name=display_name)
+            db.add(user)
+            db.flush()
+    else:
+        user = User(
+            company_id=company.id, 
+            email=f"demo_{uuid.uuid4().hex[:6]}@demo.com", 
+            display_name=display_name
+        )
+        db.add(user)
+        db.flush()
 
     # 3. Find existing active call for this room, or create a new one
     call = db.query(Call).filter(Call.room_name == room, Call.ended_at == None).first()
@@ -79,5 +88,7 @@ def get_demo_token(room: str = "testroom", db: Session = Depends(get_db)):
     db.add(participant)
     db.commit()
 
-    token = generate_livekit_token(identity=str(user.id), room=call.room_name, name=user.display_name)
+    # Force the display name to be the LiveKit Identity so no duplicates map correctly,
+    # and the ML agent correctly logs human-readable names.
+    token = generate_livekit_token(identity=display_name, room=call.room_name, name=display_name)
     return TokenResponse(token=token, livekit_url=LIVEKIT_URL, room_name=call.room_name)
