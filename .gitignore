@@ -22,3 +22,14 @@ Thumbs.db
 # Ignore test media
 *.wav
 *.mp3
+
+# ML model weights (large binary files — store separately e.g. Git LFS or GDrive)
+*.pth
+*.pt
+
+# Flutter build output
+client_flutter/build/
+
+# Logs
+backend_logs.txt
+*.log
