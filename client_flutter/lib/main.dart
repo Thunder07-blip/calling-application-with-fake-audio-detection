@@ -48,13 +48,16 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   bool _isSafetyActive = false;
   late AnimationController _pulseController;
 
-  // Automatic host resolution: 10.0.2.2 for Android Emulator, localhost for others
+  // Cloud-ready URL resolution.
+  // For release APK, set via: flutter build apk --dart-define=BACKEND_URL=https://...
+  // Falls back to local dev server when not set.
   String get _backendUrl {
-    const argHost = String.fromEnvironment('BACKEND_HOST');
-    if (argHost.isNotEmpty) return 'http://$argHost:8000/token/demo';
-    
+    const cloudUrl = String.fromEnvironment('BACKEND_URL');
+    if (cloudUrl.isNotEmpty) return '$cloudUrl/token/demo';
+
+    // Local dev fallback
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-       return 'http://192.168.29.34:8000/token/demo';
+      return 'http://192.168.29.34:8000/token/demo';
     }
     return 'http://127.0.0.1:8000/token/demo';
   }
@@ -98,16 +101,7 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final token = data['token'];
-        String livekitUrl = data['livekit_url'];
-
-        // Development bridge: Redirect localhost LiveKit to emulator host
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-          if (livekitUrl.contains('127.0.0.1')) {
-            livekitUrl = livekitUrl.replaceFirst('127.0.0.1', '192.168.29.34');
-          } else if (livekitUrl.contains('localhost')) {
-            livekitUrl = livekitUrl.replaceFirst('localhost', '192.168.29.34');
-          }
-        }
+        final String livekitUrl = data['livekit_url'];
 
         _room = Room();
         _listener = _room!.createListener();

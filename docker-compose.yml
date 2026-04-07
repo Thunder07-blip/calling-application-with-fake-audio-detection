@@ -13,13 +13,13 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
-    command: --dev --node-ip=192.168.29.34
+    command: --dev --node-ip=${LIVEKIT_NODE_IP:-127.0.0.1}
     ports:
       - "7880:7880"
       - "7881:7881"
       - "50000-50020:50000-50020/udp"
     environment:
-      LIVEKIT_KEYS: "devkey: secret"
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
 
   coturn:
     image: coturn/coturn
@@ -39,10 +39,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LIVEKIT_API_KEY=devkey
-      - LIVEKIT_API_SECRET=secret
-      - LIVEKIT_PUBLIC_URL=ws://192.168.29.34:7880
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/safecall
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-secret}
+      - LIVEKIT_PUBLIC_URL=${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/safecall}
     depends_on:
       - livekit
       - db
@@ -52,8 +52,8 @@ services:
     environment:
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-secret}
-      - LIVEKIT_URL=ws://livekit:7880
-      - ROOM_NAME=testroom
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://livekit:7880}
+      - ROOM_NAME=${ROOM_NAME:-testroom}
     depends_on:
       - livekit
 
