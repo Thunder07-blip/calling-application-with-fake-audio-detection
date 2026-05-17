@@ -23,9 +23,15 @@ Thumbs.db
 *.wav
 *.mp3
 
-# ML model weights (large binary files — store separately e.g. Git LFS or GDrive)
+# ML model weights (large binary files — tracked via Git LFS in baseline_backup)
 *.pth
 *.pt
+
+# ALLOW baseline backup models through (Git LFS handles the .pth)
+!ml_agent_python/models/baseline_backup/**
+!ml_agent_python/models/baseline_backup/*.pth
+# NOTE: wav2vec2 model.safetensors (1.2GB) is NOT pushed — it auto-downloads from HuggingFace
+*.safetensors
 
 # Flutter build output
 client_flutter/build/
@@ -33,3 +39,6 @@ client_flutter/build/
 # Logs
 backend_logs.txt
 *.log
+
+# Recordings (local only, not pushed)
+ml_agent_python/recordings/
