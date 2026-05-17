@@ -6,6 +6,7 @@ from database import init_db
 from routes.companies import router as companies_router
 from routes.calls import router as calls_router
 from routes.auth import router as token_router
+from routes.recording import router as recording_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("backend_api")
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(companies_router)
 app.include_router(calls_router)
 app.include_router(token_router)
+app.include_router(recording_router)
 
 print("🔥 FASTAPI STARTED INITIALIZING")
 

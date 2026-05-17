@@ -46,21 +46,25 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   bool _isConnected = false;
   List<Participant> _participants = [];
   bool _isSafetyActive = false;
+  bool _isRecording = false;
+  bool _isTogglingRecording = false;
   late AnimationController _pulseController;
+  final TextEditingController _nameController = TextEditingController();
 
   // Cloud-ready URL resolution.
   // For release APK, set via: flutter build apk --dart-define=BACKEND_URL=https://...
   // Falls back to local dev server when not set.
-  String get _backendUrl {
+  String get _backendBase {
     const cloudUrl = String.fromEnvironment('BACKEND_URL');
-    if (cloudUrl.isNotEmpty) return '$cloudUrl/token/demo';
-
-    // Local dev fallback
+    if (cloudUrl.isNotEmpty) return cloudUrl;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://192.168.29.34:8000/token/demo';
+      return 'http://192.168.29.34:8000';
     }
-    return 'http://127.0.0.1:8000/token/demo';
+    return 'http://127.0.0.1:8000';
   }
+
+  String get _backendUrl => '$_backendBase/token/demo';
+  String get _recordingBaseUrl => '$_backendBase/recording';
 
   @override
   void initState() {
@@ -75,6 +79,7 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   void dispose() {
     _cleanup();
     _pulseController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
@@ -93,9 +98,14 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
     setState(() => _isConnecting = true);
 
     try {
-      
+      String requestUrl = '$_backendUrl?room=testroom';
+      final customName = _nameController.text.trim();
+      if (customName.isNotEmpty) {
+        requestUrl += '&name=${Uri.encodeComponent(customName)}';
+      }
+
       // Attempt connection to the new backend demo provisioning route
-      final response = await http.get(Uri.parse('$_backendUrl?room=testroom'))
+      final response = await http.get(Uri.parse(requestUrl))
           .timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 200) {
@@ -143,12 +153,55 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _disconnect() async {
+    // Stop recording first if active
+    if (_isRecording) await _toggleRecording();
     await _cleanup();
     setState(() {
       _isConnected = false;
       _participants = [];
       _isSafetyActive = false;
+      _isRecording = false;
     });
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isTogglingRecording) return;
+    setState(() => _isTogglingRecording = true);
+
+    final userName = _nameController.text.trim().isNotEmpty
+        ? _nameController.text.trim()
+        : 'Unknown';
+
+    try {
+      final endpoint = _isRecording ? 'stop' : 'start';
+      final uri = _isRecording
+          ? Uri.parse('$_recordingBaseUrl/stop?room=testroom')
+          : Uri.parse('$_recordingBaseUrl/start?room=testroom&triggered_by=${Uri.encodeComponent(userName)}');
+
+      final response = await http.post(uri).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        setState(() => _isRecording = !_isRecording);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_isRecording ? '🔴 Recording started' : '⏹ Recording stopped & saved'),
+            backgroundColor: _isRecording ? Colors.red.shade700 : Colors.green.shade700,
+            duration: const Duration(seconds: 2),
+          ));
+        }
+      } else {
+        throw Exception('Status ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Recording error: $e'),
+          backgroundColor: Colors.orange.shade700,
+        ));
+      }
+    } finally {
+      setState(() => _isTogglingRecording = false);
+    }
   }
 
   void _updateParticipants() {
@@ -232,27 +285,69 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
                 height: 12,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _isSafetyActive ? const Color(0xFF10B981) : Colors.grey,
-                  boxShadow: _isSafetyActive ? [
-                    BoxShadow(color: const Color(0xFF10B981).withOpacity(0.5), blurRadius: 10, spreadRadius: 2)
-                  ] : [],
+                  color: _isRecording
+                      ? Colors.red
+                      : (_isSafetyActive ? const Color(0xFF10B981) : Colors.grey),
+                  boxShadow: _isRecording
+                      ? [BoxShadow(color: Colors.red.withOpacity(0.6), blurRadius: 12, spreadRadius: 3)]
+                      : (_isSafetyActive ? [BoxShadow(color: const Color(0xFF10B981).withOpacity(0.5), blurRadius: 10, spreadRadius: 2)] : []),
                 ),
               ),
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _isSafetyActive ? 'AI Safety Monitor Active' : 'Monitor Standby',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  _isConnected ? 'Analyzing raw audio feed...' : 'Start a call to enable ML monitoring',
-                  style: const TextStyle(fontSize: 12, color: Colors.white60),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isRecording
+                        ? '🔴 Recording in progress'
+                        : (_isSafetyActive ? 'AI Safety Monitor Active' : 'Monitor Standby'),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    _isConnected ? 'Analyzing raw audio feed...' : 'Start a call to enable ML monitoring',
+                    style: const TextStyle(fontSize: 12, color: Colors.white60),
+                  ),
+                ],
+              ),
             ),
+            if (_isConnected)
+              GestureDetector(
+                onTap: _isTogglingRecording ? null : _toggleRecording,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _isRecording ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _isRecording ? Colors.red : Colors.white24,
+                    ),
+                  ),
+                  child: _isTogglingRecording
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
+                              color: _isRecording ? Colors.red : Colors.white54,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _isRecording ? 'Stop' : 'Record',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _isRecording ? Colors.red : Colors.white54,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
           ],
         ),
       ),
@@ -262,13 +357,32 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   Widget _buildParticipantList() {
     if (!_isConnected && !_isConnecting) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_person_rounded, size: 80, color: Colors.white.withOpacity(0.1)),
-            const SizedBox(height: 16),
-            Text('No active session', style: TextStyle(color: Colors.white.withOpacity(0.3))),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_person_rounded, size: 80, color: Colors.white.withOpacity(0.1)),
+              const SizedBox(height: 24),
+              TextField(
+                controller: _nameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Enter your name (Optional)',
+                  labelStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                  prefixIcon: Icon(Icons.person, color: Colors.white.withOpacity(0.5)),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Ready to start secure session', style: TextStyle(color: Colors.white.withOpacity(0.3))),
+            ],
+          ),
         ),
       );
     }

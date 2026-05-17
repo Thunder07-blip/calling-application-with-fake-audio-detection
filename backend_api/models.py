@@ -82,3 +82,21 @@ class MLEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     call = relationship("Call", back_populates="ml_events")
+
+
+class RecordingStatus(str, enum.Enum):
+    active = "active"
+    stopped = "stopped"
+
+
+class Recording(Base):
+    __tablename__ = "recordings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_name = Column(String, nullable=False)
+    triggered_by = Column(String, nullable=False)   # display name of user who started recording
+    started_at = Column(DateTime, default=datetime.utcnow)
+    stopped_at = Column(DateTime, nullable=True)
+    status = Column(Enum(RecordingStatus), default=RecordingStatus.active)
+    # Comma-separated list of saved file paths (filled in by ML agent via stop endpoint)
+    file_paths = Column(String, nullable=True)

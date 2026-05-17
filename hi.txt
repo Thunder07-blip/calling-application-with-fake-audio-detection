@@ -1,0 +1,3 @@
+LIVEKIT_URL=wss://safe-call-platform-evar91qb.livekit.cloud
+LIVEKIT_API_KEY=APITCmggCwh2UR5
+LIVEKIT_API_SECRET=ADxXEU4Gyj5ahFGwfBp03WxOs6TNc9gKlZAe5mGiowz

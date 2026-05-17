@@ -12,7 +12,7 @@ Usage:
 import requests
 import sys
 
-BASE = "http://localhost:8000"
+BASE = "https://calling-application-with-fake-audio-detection-production.up.railway.app"
 
 
 def step(msg: str):
