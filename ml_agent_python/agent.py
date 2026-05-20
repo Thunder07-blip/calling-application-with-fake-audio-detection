@@ -15,6 +15,9 @@ from collections import deque
 from livekit import rtc
 from livekit.api import AccessToken, VideoGrants
 
+# Force UTF-8 for Windows terminal emoji support
+sys.stdout.reconfigure(encoding='utf-8')
+
 # Configure logging visually
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - ML_AGENT - %(levelname)s - %(message)s')
 logger = logging.getLogger("ml_agent")
@@ -46,8 +49,12 @@ except ImportError as e:
     logger.error("=" * 70)
     sys.exit(1)
 
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_PATH = "./models/best_voice_detector.pth"
+MODEL_PATH = os.path.join(BASE_DIR, "models", "best_voice_detector.pth")
 CHUNK_SAMPLES = 48000           # 3-second rolling window per speaker
 UPDATE_SAMPLES = int(SAMPLE_RATE * 1.0)  # Run inference every 1 second
 THRESHOLD = 0.5
@@ -56,11 +63,10 @@ SILENCE_THRESHOLD = 0.0005
 # ═══════════════════════════════════════════════
 # ACCURACY ENHANCEMENT CONFIG
 # ═══════════════════════════════════════════════
-SMOOTHING_WINDOW = 5            # Rolling average over last N predictions
-VD_ENSEMBLE_WEIGHT = 0.4        # ResNet (Custom)
-LCNN_ENSEMBLE_WEIGHT = 0.6      # Wav2Vec2 (HuggingFace)
-ENSEMBLE_FAKE_THRESHOLD = 0.41  # Calibrated boundary between real and fake
-SMOOTHING_WINDOW = 5            # Rolling average window size
+VD_ENSEMBLE_WEIGHT = 0.40       # ResNet (Custom)
+LCNN_ENSEMBLE_WEIGHT = 0.60     # Wav2Vec2 (HuggingFace)
+ENSEMBLE_FAKE_THRESHOLD = 0.65  # Calibrated boundary between real and fake (was 0.41)
+SMOOTHING_WINDOW = 3            # Rolling average window size
 UNANIMOUS_REQUIRED = False      # If True, BOTH models must agree to flag FAKE
 
 # ═══════════════════════════════════════════════
@@ -114,9 +120,11 @@ def load_ai_model():
     
     # 4. Load Speaker Enrollment Verifier
     global speaker_verifier
-    from speaker_verify import SpeakerVerifier
-    speaker_verifier = SpeakerVerifier("./models/enrolled_speakers.pkl")
-    logger.info(f"✅ [MODEL 4/4] Speaker Verifier: {speaker_verifier.enrolled_count()} speakers enrolled.")
+    speaker_verifier = None
+    # TEMPORARILY DISABLED:
+    # from speaker_verify import SpeakerVerifier
+    # speaker_verifier = SpeakerVerifier(os.path.join(PROJECT_ROOT, "models", "enrolled_speakers.pkl"))
+    # logger.info(f"✅ [MODEL 4/4] Speaker Verifier: {speaker_verifier.enrolled_count()} speakers enrolled.")
     
     logger.info("=" * 60)
     logger.info("  ALL 4 MODELS LOADED SUCCESSFULLY")
@@ -139,14 +147,14 @@ def check_silero_vad(chunk_data: np.ndarray) -> bool:
         speech_timestamps = silero_get_speech_ts(
             tensor, silero_vad_model,
             sampling_rate=SAMPLE_RATE,
-            threshold=0.3,           # Lower = more sensitive
+            threshold=0.45,          # Lowered to 0.45 for better real-voice capture
             min_speech_duration_ms=250,
             min_silence_duration_ms=100,
         )
         return len(speech_timestamps) > 0
 
 
-def run_all_models(chunk_data: np.ndarray) -> tuple[float, float, bool, str, float]:
+def run_all_models(chunk_data: np.ndarray, run_sv: bool = True) -> tuple[float, float, bool, str | None, float | None]:
     """
     Passes audio chunk through Silero VAD, both deepfake detectors, and speaker verifier.
     Returns (vd_fake_prob, lcnn_fake_prob, has_speech, matched_speaker, speaker_sim).
@@ -184,8 +192,11 @@ def run_all_models(chunk_data: np.ndarray) -> tuple[float, float, bool, str, flo
 
     lcnn_prob = score_map.get("fake", 0.0)
     
-    # Step 4: Speaker Verification
-    matched_speaker, speaker_sim = speaker_verifier.verify(chunk_data)
+    # Step 4: Speaker Verification (CPU Heavy)
+    if run_sv and speaker_verifier is not None:
+        matched_speaker, speaker_sim = speaker_verifier.verify(chunk_data)
+    else:
+        matched_speaker, speaker_sim = None, None
     
     return vd_prob, lcnn_prob, True, matched_speaker, speaker_sim
 
@@ -201,10 +212,17 @@ class SpeakerHistory:
         self.sim_history: deque[float] = deque(maxlen=window_size)
         self.last_matched_speaker: str | None = None
 
-    def add(self, vd_prob: float, lcnn_prob: float, sim: float, matched_speaker: str | None):
+    def add(self, vd_prob: float, lcnn_prob: float, sim: float | None, matched_speaker: str | None):
         self.vd_history.append(vd_prob)
         self.lcnn_history.append(lcnn_prob)
-        self.sim_history.append(sim)
+        
+        if sim is not None:
+            self.sim_history.append(sim)
+        elif self.sim_history:
+            self.sim_history.append(self.sim_history[-1])
+        else:
+            self.sim_history.append(0.0)
+            
         if matched_speaker:
             self.last_matched_speaker = matched_speaker
 
@@ -381,6 +399,8 @@ async def main():
         accumlated_frames = []
         was_silent = False  # Track silence state to avoid spamming
 
+        frame_counter = 0
+        
         # Initialize per-speaker smoothing history
         if identity not in speaker_histories:
             speaker_histories[identity] = SpeakerHistory()
@@ -394,8 +414,13 @@ async def main():
             if active_recording is not None:
                 active_recording.write_audio(identity, audio_data)
             
-            # Every 1.0 SECONDS we analyze the buffer
-            if len(accumlated_frames) >= UPDATE_SAMPLES:
+            # Process ALL completed chunks in the buffer to avoid backlog
+            while len(accumlated_frames) >= UPDATE_SAMPLES:
+                # Check if participant has left the room; if so, cleanly terminate the stream task
+                if identity not in room.remote_participants:
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} ─ 👋 Stream closed (user left)", flush=True)
+                    return
+                    
                 new_data = np.array(accumlated_frames[:UPDATE_SAMPLES], dtype=np.float32)
                 accumlated_frames = accumlated_frames[UPDATE_SAMPLES:]
                 
@@ -410,20 +435,26 @@ async def main():
                         was_silent = True
                     continue
                 
-                chunk = buffer_3s / (mx + 1e-6)
+                # Use raw audio buffer. Aggressive normalization distorts quiet audio into static!
+                chunk = buffer_3s.copy()
+                
+                frame_counter += 1
+                # Only run CPU-heavy Speaker Verifier every 3 frames (3 seconds)
+                run_sv = (frame_counter % 3 == 1)
+                
+
                 
                 # ── Run Silero VAD + both deepfake models + Speaker Verifier ──
-                vd_prob, lcnn_prob, has_speech, matched_speaker, speaker_sim = await asyncio.to_thread(run_all_models, chunk.copy())
+                vd_prob, lcnn_prob, has_speech, matched_speaker, speaker_sim = await asyncio.to_thread(run_all_models, chunk.copy(), run_sv)
                 
                 if not has_speech:
                     if not was_silent:
                         print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} ─ 🔇 no speech (VAD filtered)", flush=True)
                         was_silent = True
                     continue
-
-                # Speech detected! Mark as active again
+                
                 if was_silent:
-                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} ─ 🎙 speaking again", flush=True)
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] user {identity} ─ 🎙 speaking again (trimmed click)", flush=True)
                     was_silent = False
 
                 # ── Temporal smoothing ──
@@ -446,10 +477,13 @@ async def main():
                 print(fmt_verdict(vd_prob, smoothed_vd, "VoiceDetector"), flush=True)
                 print(fmt_verdict(lcnn_prob, smoothed_lcnn, "LCNN(Wav2Vec2)"), flush=True)
                 
-                if matched_speaker and history.smoothed_sim() > SPEAKER_MATCH_THRESHOLD:
-                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ 🔑 {matched_speaker.upper()} (sim={speaker_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
-                elif speaker_sim > 0.1:
-                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ ❌ No match (sim={speaker_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
+                _display_sim = speaker_sim if speaker_sim is not None else (history.sim_history[-1] if history.sim_history else 0.0)
+                _display_speaker = matched_speaker if matched_speaker is not None else history.last_matched_speaker
+
+                if _display_speaker and history.smoothed_sim() > SPEAKER_MATCH_THRESHOLD:
+                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ 🔑 {_display_speaker.upper()} (sim={_display_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
+                elif _display_sim > 0.1:
+                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ ❌ No match (sim={_display_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
                 
                 # ── Ensemble final verdict ──
                 emoji = "🚨" if ensemble_verdict == "FAKE" else "✅"

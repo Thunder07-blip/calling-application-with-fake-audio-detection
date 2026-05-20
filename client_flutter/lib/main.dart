@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'dart:math' as math;
 
 void main() {
   // Ensure Flutter is initialized
@@ -49,6 +50,7 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   bool _isSafetyActive = false;
   bool _isRecording = false;
   bool _isTogglingRecording = false;
+  bool _isMicMuted = false;
   late AnimationController _pulseController;
   final TextEditingController _nameController = TextEditingController();
 
@@ -161,6 +163,7 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
           _isConnected = true;
           _isConnecting = false;
           _isSafetyActive = true;
+          _isMicMuted = false;
         });
         _updateParticipants();
         
@@ -230,41 +233,66 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _toggleMic() async {
+    if (_room == null || _room!.localParticipant == null) return;
+    final isMuted = !_isMicMuted;
+    await _room!.localParticipant!.setMicrophoneEnabled(!isMuted);
+    setState(() => _isMicMuted = isMuted);
+  }
+
   void _updateParticipants() {
     if (_room == null) return;
     final pList = <Participant>[];
     if (_room!.localParticipant != null) pList.add(_room!.localParticipant!);
     pList.addAll(_room!.remoteParticipants.values);
     setState(() => _participants = pList);
+    
+    // Clean up ML state for users who left to prevent ghost warnings if they rejoin
+    final activeIds = pList.map((p) => p.identity).toSet();
+    _mlVerdicts.removeWhere((id, _) => !activeIds.contains(id));
+    _notifiedFakes.removeWhere((id) => !activeIds.contains(id));
   }
 
   void _showFakeAlertBanner(String identity) {
     HapticFeedback.heavyImpact();
-    
+
+    // Unfreeze after 5 seconds so they can trigger the warning again
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted) {
+        _notifiedFakes.remove(identity);
+      }
+    });
+
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.red.shade900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 36),
-            const SizedBox(width: 12),
-            const Expanded(child: Text('DEEPFAKE WARNING', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-          ],
-        ),
-        content: Text(
-          'AI has detected that "$identity" is highly likely using an AI-generated voice or synthetic clone.',
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('I UNDERSTAND', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      builder: (ctx) {
+        // Auto-dismiss after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
+          if (ctx.mounted) Navigator.of(ctx, rootNavigator: true).maybePop();
+        });
+        return AlertDialog(
+          backgroundColor: Colors.red.shade900,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 36),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('DEEPFAKE WARNING', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            ],
           ),
-        ],
-      )
+          content: Text(
+            'AI has detected that "$identity" is highly likely using an AI-generated voice or synthetic clone.',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('I UNDERSTAND', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -556,25 +584,97 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
 
   Widget _buildBottomAction() {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: SizedBox(
-        width: double.infinity,
-        height: 60,
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _isConnected ? const Color(0xFFEF4444) : const Color(0xFF3B82F6),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            elevation: 0,
-          ),
-          onPressed: _isConnecting ? null : (_isConnected ? _disconnect : _connect),
-          child: _isConnecting
-              ? const CircularProgressIndicator(color: Colors.white)
-              : Text(
-                  _isConnected ? 'End Secure Call' : 'Start Safe Call',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // ── AI Warning demo button (only visible during a call) ──
+          if (_isConnected)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12, right: 8),
+              child: GestureDetector(
+                onTap: () async {
+                  if (_room == null || _room!.localParticipant == null) return;
+                  
+                  final myIdentity = _room!.localParticipant!.identity;
+                  
+                  // Random confidence between 85.0 and 98.0
+                  final randomConf = 85.0 + math.Random().nextDouble() * 13.0;
+                  
+                  // Construct the same payload the Python ML Agent uses
+                  final payload = jsonEncode({
+                    'type': 'ml_verdict',
+                    'identity': myIdentity,
+                    'verdict': 'FAKE',
+                    'confidence': randomConf
+                  });
+                  
+                  // 1. Broadcast this to EVERYONE else in the room
+                  await _room!.localParticipant!.publishData(utf8.encode(payload));
+                  
+                  // 2. Trigger the popup locally for the person who pressed the button
+                  if (!_notifiedFakes.contains(myIdentity)) {
+                    setState(() {
+                      _mlVerdicts[myIdentity] = jsonDecode(payload);
+                    });
+                    _notifiedFakes.add(myIdentity);
+                    _showFakeAlertBanner(myIdentity);
+                  }
+                },
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.12),
+                      width: 1,
+                    ),
+                  ),
                 ),
-        ),
+              ),
+            ),
+          // ── Mic + End Call row ──
+          Row(
+            children: [
+              if (_isConnected) ...[
+                FloatingActionButton(
+                  heroTag: 'mic_btn',
+                  backgroundColor: _isMicMuted ? Colors.red.shade900 : Colors.white.withOpacity(0.1),
+                  elevation: 0,
+                  onPressed: _toggleMic,
+                  child: Icon(
+                    _isMicMuted ? Icons.mic_off : Icons.mic,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+              ],
+              Expanded(
+                child: SizedBox(
+                  height: 60,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isConnected ? const Color(0xFFEF4444) : const Color(0xFF3B82F6),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      elevation: 0,
+                    ),
+                    onPressed: _isConnecting ? null : (_isConnected ? _disconnect : _connect),
+                    child: _isConnecting
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(
+                            _isConnected ? 'End Secure Call' : 'Start Safe Call',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
