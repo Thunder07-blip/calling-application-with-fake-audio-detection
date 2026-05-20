@@ -57,15 +57,25 @@ SILENCE_THRESHOLD = 0.0005
 # ACCURACY ENHANCEMENT CONFIG
 # ═══════════════════════════════════════════════
 SMOOTHING_WINDOW = 5            # Rolling average over last N predictions
-VD_ENSEMBLE_WEIGHT = 0.4        # VoiceDetector contributes 40% to ensemble
-LCNN_ENSEMBLE_WEIGHT = 0.6      # LCNN contributes 60% to ensemble
-ENSEMBLE_FAKE_THRESHOLD = 0.55  # Ensemble score above this = FAKE
+VD_ENSEMBLE_WEIGHT = 0.4        # ResNet (Custom)
+LCNN_ENSEMBLE_WEIGHT = 0.6      # Wav2Vec2 (HuggingFace)
+ENSEMBLE_FAKE_THRESHOLD = 0.41  # Calibrated boundary between real and fake
+SMOOTHING_WINDOW = 5            # Rolling average window size
 UNANIMOUS_REQUIRED = False      # If True, BOTH models must agree to flag FAKE
+
+# ═══════════════════════════════════════════════
+# SPEAKER ENROLLMENT CONFIG
+# ═══════════════════════════════════════════════
+SPEAKER_MATCH_THRESHOLD = 0.75     # Cosine similarity to consider a match
+SPEAKER_ENROLLED_VD_WEIGHT = 0.2   # VD weight when speaker is enrolled
+SPEAKER_ENROLLED_LCNN_WEIGHT = 0.3 # LCNN weight when speaker is enrolled
+SPEAKER_ENROLLED_SIM_WEIGHT = 0.5  # Speaker sim weight (anchors toward REAL)
 
 global_model = None
 lcnn_classifier = None
 silero_vad_model = None
 silero_get_speech_ts = None
+speaker_verifier = None
 
 def load_ai_model():
     global global_model, lcnn_classifier, silero_vad_model, silero_get_speech_ts
@@ -102,8 +112,14 @@ def load_ai_model():
     silero_get_speech_ts = utils[0]  # get_speech_timestamps function
     logger.info("✅ [MODEL 3/3] Silero VAD deployed.")
     
+    # 4. Load Speaker Enrollment Verifier
+    global speaker_verifier
+    from speaker_verify import SpeakerVerifier
+    speaker_verifier = SpeakerVerifier("./models/enrolled_speakers.pkl")
+    logger.info(f"✅ [MODEL 4/4] Speaker Verifier: {speaker_verifier.enrolled_count()} speakers enrolled.")
+    
     logger.info("=" * 60)
-    logger.info("  ALL 3 MODELS LOADED SUCCESSFULLY")
+    logger.info("  ALL 4 MODELS LOADED SUCCESSFULLY")
     logger.info(f"  Ensemble weights: VD={VD_ENSEMBLE_WEIGHT}, LCNN={LCNN_ENSEMBLE_WEIGHT}")
     logger.info(f"  Smoothing window: {SMOOTHING_WINDOW} predictions")
     logger.info(f"  Unanimous mode: {UNANIMOUS_REQUIRED}")
@@ -130,15 +146,15 @@ def check_silero_vad(chunk_data: np.ndarray) -> bool:
         return len(speech_timestamps) > 0
 
 
-def run_both_models(chunk_data: np.ndarray) -> tuple[float, float, bool]:
+def run_all_models(chunk_data: np.ndarray) -> tuple[float, float, bool, str, float]:
     """
-    Passes audio chunk through Silero VAD + both deepfake detectors.
-    Returns (vd_fake_prob, lcnn_fake_prob, has_speech).
+    Passes audio chunk through Silero VAD, both deepfake detectors, and speaker verifier.
+    Returns (vd_fake_prob, lcnn_fake_prob, has_speech, matched_speaker, speaker_sim).
     """
     # Step 1: Silero VAD gate — is there actual human speech?
     has_speech = check_silero_vad(chunk_data)
     if not has_speech:
-        return 0.0, 0.0, False
+        return 0.0, 0.0, False, None, 0.0
     
     # Step 2: VoiceDetector Inference
     with torch.no_grad():
@@ -168,7 +184,10 @@ def run_both_models(chunk_data: np.ndarray) -> tuple[float, float, bool]:
 
     lcnn_prob = score_map.get("fake", 0.0)
     
-    return vd_prob, lcnn_prob, True
+    # Step 4: Speaker Verification
+    matched_speaker, speaker_sim = speaker_verifier.verify(chunk_data)
+    
+    return vd_prob, lcnn_prob, True, matched_speaker, speaker_sim
 
 
 # ═══════════════════════════════════════════════
@@ -179,20 +198,34 @@ class SpeakerHistory:
     def __init__(self, window_size: int = SMOOTHING_WINDOW):
         self.vd_history: deque[float] = deque(maxlen=window_size)
         self.lcnn_history: deque[float] = deque(maxlen=window_size)
+        self.sim_history: deque[float] = deque(maxlen=window_size)
+        self.last_matched_speaker: str | None = None
 
-    def add(self, vd_prob: float, lcnn_prob: float):
+    def add(self, vd_prob: float, lcnn_prob: float, sim: float, matched_speaker: str | None):
         self.vd_history.append(vd_prob)
         self.lcnn_history.append(lcnn_prob)
+        self.sim_history.append(sim)
+        if matched_speaker:
+            self.last_matched_speaker = matched_speaker
 
     def smoothed_vd(self) -> float:
         return sum(self.vd_history) / len(self.vd_history) if self.vd_history else 0.0
 
     def smoothed_lcnn(self) -> float:
         return sum(self.lcnn_history) / len(self.lcnn_history) if self.lcnn_history else 0.0
+        
+    def smoothed_sim(self) -> float:
+        return sum(self.sim_history) / len(self.sim_history) if self.sim_history else 0.0
 
     def ensemble_score(self) -> float:
         """Weighted ensemble of the smoothed probabilities."""
-        return (self.smoothed_vd() * VD_ENSEMBLE_WEIGHT) + (self.smoothed_lcnn() * LCNN_ENSEMBLE_WEIGHT)
+        avg_sim = self.smoothed_sim()
+        if self.last_matched_speaker and avg_sim > SPEAKER_MATCH_THRESHOLD:
+            return (self.smoothed_vd() * SPEAKER_ENROLLED_VD_WEIGHT +
+                    self.smoothed_lcnn() * SPEAKER_ENROLLED_LCNN_WEIGHT +
+                    (1.0 - avg_sim) * SPEAKER_ENROLLED_SIM_WEIGHT)
+        else:
+            return (self.smoothed_vd() * VD_ENSEMBLE_WEIGHT) + (self.smoothed_lcnn() * LCNN_ENSEMBLE_WEIGHT)
 
     def ensemble_verdict(self) -> tuple[str, float]:
         """Returns (verdict_string, confidence_percent)."""
@@ -286,7 +319,7 @@ async def main():
     load_ai_model()
     logger.info(f"Connecting to LiveKit Room: '{ROOM_NAME}' at {LIVEKIT_URL}")
 
-    grant = VideoGrants(room=ROOM_NAME, room_join=True, can_publish=False, can_subscribe=True, hidden=True)
+    grant = VideoGrants(room=ROOM_NAME, room_join=True, can_publish=True, can_subscribe=True, hidden=True)
     access_token = AccessToken(API_KEY, API_SECRET)
     access_token.with_grants(grant).with_identity("ai_monitor").with_name("AI Safety Monitor")
     token = access_token.to_jwt()
@@ -379,8 +412,8 @@ async def main():
                 
                 chunk = buffer_3s / (mx + 1e-6)
                 
-                # ── Run Silero VAD + both deepfake models ──
-                vd_prob, lcnn_prob, has_speech = await asyncio.to_thread(run_both_models, chunk.copy())
+                # ── Run Silero VAD + both deepfake models + Speaker Verifier ──
+                vd_prob, lcnn_prob, has_speech, matched_speaker, speaker_sim = await asyncio.to_thread(run_all_models, chunk.copy())
                 
                 if not has_speech:
                     if not was_silent:
@@ -394,7 +427,7 @@ async def main():
                     was_silent = False
 
                 # ── Temporal smoothing ──
-                history.add(vd_prob, lcnn_prob)
+                history.add(vd_prob, lcnn_prob, speaker_sim, matched_speaker)
                 smoothed_vd = history.smoothed_vd()
                 smoothed_lcnn = history.smoothed_lcnn()
                 ensemble_verdict, ensemble_conf = history.ensemble_verdict()
@@ -413,14 +446,42 @@ async def main():
                 print(fmt_verdict(vd_prob, smoothed_vd, "VoiceDetector"), flush=True)
                 print(fmt_verdict(lcnn_prob, smoothed_lcnn, "LCNN(Wav2Vec2)"), flush=True)
                 
+                if matched_speaker and history.smoothed_sim() > SPEAKER_MATCH_THRESHOLD:
+                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ 🔑 {matched_speaker.upper()} (sim={speaker_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
+                elif speaker_sim > 0.1:
+                    print(f"[{time_str}] user {identity} ─ SpeakerMatch   ─ ❌ No match (sim={speaker_sim:.2f} avg={history.smoothed_sim():.2f})", flush=True)
+                
                 # ── Ensemble final verdict ──
                 emoji = "🚨" if ensemble_verdict == "FAKE" else "✅"
+                boost_str = " [enrolled_boost]" if history.last_matched_speaker and history.smoothed_sim() > SPEAKER_MATCH_THRESHOLD else ""
+                
                 print(
                     f"[{time_str}] user {identity} ─ {'ENSEMBLE':<14} ─ {emoji} {ensemble_verdict} "
-                    f"({ensemble_conf:5.1f}%) [w={VD_ENSEMBLE_WEIGHT}/{LCNN_ENSEMBLE_WEIGHT} n={n_samples}]{rec_marker}",
+                    f"({ensemble_conf:5.1f}%) [n={n_samples}]{boost_str}{rec_marker}",
                     flush=True
                 )
                 print("─" * 70, flush=True)
+                
+                # ── Broadcast to Flutter via WebRTC Data Channel ──
+                try:
+                    verdict_status = "REAL"
+                    if ensemble_score >= 0.45:
+                        verdict_status = "FAKE"
+                    elif ensemble_score >= 0.35:
+                        verdict_status = "SUSPICIOUS"
+
+                    payload = json.dumps({
+                        "type": "ml_verdict",
+                        "identity": identity,
+                        "verdict": verdict_status,
+                        "confidence": ensemble_conf,
+                        "speaker_match": history.last_matched_speaker if history.smoothed_sim() > SPEAKER_MATCH_THRESHOLD else None
+                    }).encode("utf-8")
+                    
+                    if room and room.local_participant:
+                        await room.local_participant.publish_data(payload, reliable=True)
+                except Exception as e:
+                    print(f"[{time_str}] ⚠️ Failed to broadcast ml_verdict: {e}", flush=True)
 
 
     try:

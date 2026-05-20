@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   // Ensure Flutter is initialized
@@ -50,6 +51,10 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   bool _isTogglingRecording = false;
   late AnimationController _pulseController;
   final TextEditingController _nameController = TextEditingController();
+
+  // ML State tracking
+  final Map<String, Map<String, dynamic>> _mlVerdicts = {};
+  final Set<String> _notifiedFakes = {};
 
   // Cloud-ready URL resolution.
   // For release APK, set via: flutter build apk --dart-define=BACKEND_URL=https://...
@@ -118,6 +123,27 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
         _listener!.on<RoomEvent>((event) {
           _updateParticipants();
           setState(() {});
+        });
+
+        _listener!.on<DataReceivedEvent>((event) {
+          try {
+            final data = jsonDecode(utf8.decode(event.data));
+            if (data['type'] == 'ml_verdict') {
+              final identity = data['identity'];
+              final verdict = data['verdict'];
+              
+              setState(() {
+                _mlVerdicts[identity] = data;
+              });
+              
+              if (verdict == 'FAKE' && !_notifiedFakes.contains(identity)) {
+                _notifiedFakes.add(identity);
+                _showFakeAlertBanner(identity);
+              }
+            }
+          } catch (e) {
+            debugPrint("Error parsing data event: $e");
+          }
         });
 
         const roomOptions = RoomOptions(
@@ -210,6 +236,92 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
     if (_room!.localParticipant != null) pList.add(_room!.localParticipant!);
     pList.addAll(_room!.remoteParticipants.values);
     setState(() => _participants = pList);
+  }
+
+  void _showFakeAlertBanner(String identity) {
+    HapticFeedback.heavyImpact();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.red.shade900,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 36),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('DEEPFAKE WARNING', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: Text(
+          'AI has detected that "$identity" is highly likely using an AI-generated voice or synthetic clone.',
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('I UNDERSTAND', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      )
+    );
+  }
+
+  Widget _buildVerdictBadge(Map<String, dynamic> verdictData) {
+    final verdict = verdictData['verdict'];
+    final conf = verdictData['confidence'];
+    final speakerMatch = verdictData['speaker_match'];
+    
+    Color badgeColor;
+    IconData icon;
+    String text;
+    
+    if (verdict == 'FAKE') {
+      badgeColor = const Color(0xFFEF4444); // Red
+      icon = Icons.gpp_bad_rounded;
+      text = 'FAKE (${conf.toStringAsFixed(1)}%)';
+    } else if (verdict == 'SUSPICIOUS') {
+      badgeColor = const Color(0xFFF59E0B); // Orange
+      icon = Icons.warning_rounded;
+      text = 'SUSPICIOUS (${conf.toStringAsFixed(1)}%)';
+    } else {
+      badgeColor = const Color(0xFF10B981); // Green
+      icon = Icons.gpp_good_rounded;
+      text = 'REAL (${conf.toStringAsFixed(1)}%)';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: badgeColor, size: 14),
+            const SizedBox(width: 4),
+            Text(text, style: TextStyle(color: badgeColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        if (speakerMatch != null) ...[
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B82F6).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.verified_user, color: Color(0xFF3B82F6), size: 10),
+                const SizedBox(width: 4),
+                Text('Verified: ${speakerMatch.toString().toUpperCase()}', style: const TextStyle(color: Color(0xFF3B82F6), fontSize: 10, fontWeight: FontWeight.bold)),
+              ],
+            )
+          )
+        ]
+      ]
+    );
   }
 
   @override
@@ -417,10 +529,19 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
                       isMe ? '${p.identity} (You)' : p.identity,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    Text(
-                      p.audioTrackPublications.isNotEmpty ? 'Streaming raw audio' : 'No audio',
-                      style: TextStyle(fontSize: 12, color: Colors.white70),
-                    ),
+                    const SizedBox(height: 4),
+                    if (isMe)
+                      Text(
+                        p.audioTrackPublications.isNotEmpty ? 'Streaming raw audio' : 'No audio',
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      )
+                    else if (_mlVerdicts.containsKey(p.identity))
+                      _buildVerdictBadge(_mlVerdicts[p.identity]!)
+                    else
+                      const Text(
+                        'AI Analyzing...',
+                        style: TextStyle(fontSize: 12, color: Colors.orangeAccent),
+                      ),
                   ],
                 ),
               ),
