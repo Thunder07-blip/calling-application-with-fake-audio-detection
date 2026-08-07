@@ -1,44 +1,81 @@
-# Byte-compiled / optimized / DLL files
+# ──────────────────────────────────────────────────────
+# Safe Call Platform — .gitignore
+# ──────────────────────────────────────────────────────
+
+# ── Python ───────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+dist/
+build/
 
-# Environment Variables
-.env
-
-# Virtual Environment
+# ── Virtual Environments ─────────────────────────────
 venv/
 env/
 .venv/
+backend_api/test_venv/
 
-# OS specific
-.DS_Store
-Thumbs.db
+# ── Environment Variables (NEVER commit secrets) ─────
+.env
 
-# IDEs
-.idea/
-.vscode/
-
-# Ignore test media
-*.wav
-*.mp3
-
-# ML model weights (large binary files — tracked via Git LFS in baseline_backup)
+# ── ML Model Weights (large binaries) ────────────────
 *.pth
 *.pt
+*.safetensors
+*.pkl
+*.onnx
+*.h5
+training_data.pt
 
-# ALLOW baseline backup models through (Git LFS handles the .pth)
+# ALLOW baseline backup models through (tracked via Git LFS)
 !ml_agent_python/models/baseline_backup/**
 !ml_agent_python/models/baseline_backup/*.pth
-# NOTE: wav2vec2 model.safetensors (1.2GB) is NOT pushed — it auto-downloads from HuggingFace
-*.safetensors
 
-# Flutter build output
+# ── Audio / Video Recordings (local data only) ───────
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.aac
+*.mpeg
+*.flac
+*.ogg
+fake_call_recordins/
+real_recordinsg/
+ml_agent_python/recordings/
+
+# ── Flutter ──────────────────────────────────────────
 client_flutter/build/
+client_flutter/.dart_tool/
+client_flutter/.flutter-plugins-dependencies
+client_flutter/build.log
+client_flutter/build_log.txt
+client_flutter/doctor_output.txt
 
-# Logs
+# ── IDE / Editor ─────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.cph/
+
+# ── OS Files ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+
+# ── Logs ─────────────────────────────────────────────
 backend_logs.txt
 *.log
 
-# Recordings (local only, not pushed)
-ml_agent_python/recordings/
+# ── Docker volumes ───────────────────────────────────
+postgres_data/
+
+# ── Unrelated / Temporary files ──────────────────────
+C_All_in_one_Gun.cpp
+LCNN/
+models/enrolled_speakers.pkl
+hi.txt
+env.txt

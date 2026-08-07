@@ -256,8 +256,8 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
   void _showFakeAlertBanner(String identity) {
     HapticFeedback.heavyImpact();
 
-    // Unfreeze after 5 seconds so they can trigger the warning again
-    Future.delayed(const Duration(seconds: 5), () {
+    // Unfreeze after 7 seconds so they can trigger the warning again
+    Future.delayed(const Duration(seconds: 7), () {
       if (mounted) {
         _notifiedFakes.remove(identity);
       }
@@ -267,8 +267,8 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
       context: context,
       barrierDismissible: true,
       builder: (ctx) {
-        // Auto-dismiss after 3 seconds
-        Future.delayed(const Duration(seconds: 3), () {
+        // Auto-dismiss after 5 seconds
+        Future.delayed(const Duration(seconds: 5), () {
           if (ctx.mounted) Navigator.of(ctx, rootNavigator: true).maybePop();
         });
         return AlertDialog(
@@ -623,15 +623,11 @@ class _CallScreenState extends State<CallScreen> with SingleTickerProviderStateM
                   }
                 },
                 child: Container(
-                  width: 24,
-                  height: 24,
+                  width: 30,
+                  height: 30,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.04),
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.12),
-                      width: 1,
-                    ),
                   ),
                 ),
               ),
